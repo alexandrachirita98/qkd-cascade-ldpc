@@ -32,6 +32,18 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Secrets / env files
+.env
+.env.local
+.env.*.local
+
+# Logs / temp
+*.log
+*.tmp
+
+# Defensive (in case anything JS-side ever lands)
+node_modules/
+
 # Generated outputs (harness sweep, verifier CSV/parquet dumps, plot exports).
 # LDPC matrices under src/codes/data/ are commit-on-purpose and are NOT here.
 results/
