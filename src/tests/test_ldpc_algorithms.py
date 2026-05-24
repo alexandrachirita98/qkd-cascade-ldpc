@@ -64,13 +64,21 @@ class TestBorisovAdaptiveLDPC:
         assert res.messages >= 1
         assert res.iterations >= 1
 
-    def test_payload_size_must_match(self, code_pool_n1024, bp_decoders_n1024):
+    def test_payload_size_adapts(self, code_pool_n1024, bp_decoders_n1024):
+        """Borisov adapts its p/s allocation to any payload size the caller
+        provides (since the harness uses a fixed payload across algorithms)."""
         b = BorisovAdaptiveLDPC(code_pool_n1024, bp_decoders_n1024, alpha=0.15)
-        # Wrong payload size (not n - alpha*n) → controller raises.
-        a = np.zeros(500, dtype=np.uint8)
-        bob = a.copy()
-        with pytest.raises(ValueError):
-            b.run_frame(a, bob, link_id="L")
+        rng = np.random.default_rng(0)
+        # Payload that doesn't match the α-derived ideal (1-α)·N = 870.
+        for n_payload in (500, 870, 950):
+            a = rng.integers(0, 2, size=n_payload, dtype=np.uint8)
+            bob = a ^ (rng.random(n_payload) < 0.02).astype(np.uint8)
+            res = b.run_frame(
+                a, bob, link_id=f"L{n_payload}",
+                decoy_qber=0.02, true_qber=0.02,
+            )
+            assert res.leakage_bits >= 0
+            assert res.messages >= 1
 
     def test_ema_buffer_grows_after_frames(self, code_pool_n1024, bp_decoders_n1024):
         b = BorisovAdaptiveLDPC(code_pool_n1024, bp_decoders_n1024, alpha=0.15)

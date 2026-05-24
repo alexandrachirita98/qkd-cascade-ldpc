@@ -216,17 +216,31 @@ class BorisovAdaptiveLDPC:
         R, p_initial, s_initial = self._pick_rate(q_hat)
         code = self.codes[R]
         decoder = self.decoders[R]
-        d_total_slots = p_initial + s_initial
-        if d_total_slots != self.N - n_payload:
-            # Caller-supplied payload size doesn't match the controller's
-            # α-derived slot count; honor the caller by trimming or padding
-            # the slot count. Simplest fix: enforce that user n_payload ==
-            # N - round(alpha * N). For now, raise.
-            raise ValueError(
-                f"payload {n_payload} requires {self.N - n_payload} slots "
-                f"but α={self.alpha} gives {d_total_slots}. Call with "
-                f"n_payload = {self.N - d_total_slots}."
-            )
+
+        # Adapt the controller's α-derived slot allocation to the caller's
+        # actual payload size. The controller's Eq. 9 picks (p, s) assuming
+        # payload = (1−α)·N exactly; when the caller uses a different payload
+        # (e.g., to match a fixed-size frame across all algorithms in a
+        # benchmark harness), we reconcile here:
+        #
+        #   - If controller wants MORE slots than caller leaves room for,
+        #     trim s first (shortened bits are pure padding), then p if needed.
+        #     p is the more valuable kind (absorbs syndrome) so trim it last.
+        #   - If controller wants FEWER slots, pad s with extra shortened bits
+        #     (cheap — they have known values via shared PRNG, no leakage).
+        #
+        # Constraint preserved: p_initial ≤ code.p_max (already enforced in
+        # _pick_rate; trimming only ever decreases p_initial).
+        d_required = self.N - n_payload
+        d_total = p_initial + s_initial
+        if d_total > d_required:
+            excess = d_total - d_required
+            s_reduce = min(s_initial, excess)
+            s_initial -= s_reduce
+            p_initial = max(0, p_initial - (excess - s_reduce))
+        elif d_total < d_required:
+            s_initial += d_required - d_total
+        # After this, p_initial + s_initial == d_required by construction.
 
         # Slot allocation: only PUNCTURED positions must be untainted (so the
         # decoder can solve them through neighboring parity constraints).
