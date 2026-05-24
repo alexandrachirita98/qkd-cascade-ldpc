@@ -20,6 +20,8 @@ htmlcov/
 
 # Notebooks
 .ipynb_checkpoints/
+# Notebooks themselves are tracked (e.g. kaggle_notebook.ipynb is a
+# deployment artifact). Only the checkpoint dirs are ignored.
 
 # Editors / IDEs
 .vscode/
