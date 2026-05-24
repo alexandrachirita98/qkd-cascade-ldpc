@@ -27,14 +27,21 @@ def one_qber_point(args: tuple) -> pd.DataFrame:
     """Process one Q point; return a DataFrame of per-frame records.
 
     Args:
-        args: tuple (q, n_payload, n_frames, seed, n, alpha, repo_dir).
-            repo_dir is the cloned-repo path on the worker's filesystem
-            (e.g. "/content/qkd-cascade-ldpc" on Colab,
-            "/kaggle/working/qkd-cascade-ldpc" on Kaggle). Workers
-            re-set sys.path / cwd because `spawn`-mode children start
-            with a fresh interpreter.
+        args: tuple of either:
+            (q, n_payload, n_frames, seed, n, alpha, repo_dir)             — runs all 3 algorithms (default)
+            (q, n_payload, n_frames, seed, n, alpha, repo_dir, skip_borisov: bool)
+                — when skip_borisov=True, only Cascade + Mueller blind run.
+            Borisov at N >= 4096 with placeholder Elkouss distributions burns
+            ~2 s/frame in its disclosure loop and produces FER=1, so for
+            wall-clock-sensitive runs (Colab benchmarks) skipping it is
+            a reasonable trade. Re-enable when the code pool uses the real
+            Elkouss 2009 polynomial coefficients.
     """
-    q, n_payload, n_frames, seed, n, alpha, repo_dir = args
+    if len(args) == 8:
+        q, n_payload, n_frames, seed, n, alpha, repo_dir, skip_borisov = args
+    else:
+        q, n_payload, n_frames, seed, n, alpha, repo_dir = args
+        skip_borisov = False
 
     if repo_dir not in sys.path:
         sys.path.insert(0, repo_dir)
@@ -50,8 +57,9 @@ def one_qber_point(args: tuple) -> pd.DataFrame:
     algos = [
         make_cascade(seed=seed),
         make_mueller(n=n, seed=seed),
-        make_borisov(n=n, alpha=alpha, seed=seed),
     ]
+    if not skip_borisov:
+        algos.append(make_borisov(n=n, alpha=alpha, seed=seed))
     frames = generate_frames(q, n_payload, n_frames, seed=seed)
     rows: list[dict] = []
     for alg in algos:
