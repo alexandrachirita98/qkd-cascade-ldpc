@@ -275,13 +275,18 @@ class BorisovAdaptiveLDPC:
         syn_bob = np.asarray(code.H @ bob_ext).flatten() & 1
         target_syndrome = (syn_alice ^ syn_bob).astype(np.int8)
 
+        # The decoder solves for the error vector e = alice_ext ⊕ bob_ext.
+        # At payload positions, e is unknown — LLR = BSC prior log((1-q)/q).
+        # At punctured positions, Bob doesn't know Alice's bit — LLR = 0
+        # (erasure); BP must solve for the punctured bits via parity.
+        # At shortened positions, Alice and Bob share the SAME value, so
+        # e is known to be 0 — LLR = +LLR_LARGE (no flip, regardless of
+        # whether the shared value is 0 or 1).
         q_for_llr = max(min(q_hat, 0.499), 1e-6)
         llr_q = math.log((1 - q_for_llr) / q_for_llr)
         llr_channel = np.full(self.N, llr_q, dtype=np.float64)
         llr_channel[punctured_positions] = 0.0
-        llr_channel[shortened_positions] = np.where(
-            shortened_values == 0, _LLR_LARGE, -_LLR_LARGE
-        )
+        llr_channel[shortened_positions] = _LLR_LARGE
 
         ell_syn = (1 - R) * self.N
         punctured_remaining = punctured_positions.copy()
@@ -343,10 +348,14 @@ class BorisovAdaptiveLDPC:
             if not reveals:
                 break
 
+            # Reveal: copy Alice's value into Bob's frame at the disclosed
+            # positions, so the error e = alice_ext ⊕ bob_ext becomes 0
+            # there. LLR is +LLR_LARGE (known-zero error), independent of
+            # whether the revealed value is 0 or 1.
             reveal_arr = np.asarray(reveals, dtype=np.int64)
             actual_vals = alice_ext[reveal_arr]
-            llr_channel[reveal_arr] = np.where(actual_vals == 0, _LLR_LARGE, -_LLR_LARGE)
             bob_ext[reveal_arr] = actual_vals
+            llr_channel[reveal_arr] = _LLR_LARGE
             d_cumulative += len(reveals)
             syn_bob = np.asarray(code.H @ bob_ext).flatten() & 1
             target_syndrome = (syn_alice ^ syn_bob).astype(np.int8)
