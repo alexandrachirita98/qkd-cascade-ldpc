@@ -53,13 +53,11 @@ def f_eff_at_cluster(
     where FER_c = 1 − (1 − FER)^k.
 
     Note: the tag term `t/(n·h₂(q))` does not depend on k in this literal
-    form. Consequently, at FER = 0 the cluster-size optimization is
-    degenerate (any k gives the same f_eff); at FER > 0 the optimum is
-    always k = 1 because larger k monotonically increases FER_cluster.
-    Mueller's Figure 9 shows a non-trivial optimal k, which suggests the
-    paper's plots use the per-frame-amortized variant t/(k·n·h₂(q)). We
-    follow the brief's literal formula here; switch to the amortized one
-    if you need the U-shaped k* curve.
+    form. At FER > 0 the optimum is always k = 1 because larger k
+    monotonically increases FER_cluster. Mueller's Figure 9 shows a
+    non-trivial optimal k, suggesting the paper's plots use the
+    per-frame-amortized variant t/(k·n·h₂(q)); switch to that if you
+    need the U-shaped k* curve.
     """
     h_q = h2(qber)
     if h_q <= 0.0:

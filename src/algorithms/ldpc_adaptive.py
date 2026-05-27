@@ -26,9 +26,10 @@ Per-frame flow:
   5. Update EMA buffer with the true frame QBER on success, or with the
      0.5 penalty on verification failure.
 
-Leakage: per Borisov Eq. 3, leakage = ℓ_syn − p_active + d_cumulative.
-A revealed-punctured bit costs 2 (direct + freed syndrome); a revealed
-payload bit costs 1 (direct only).
+Leakage (Borisov Eq. 3): leakage = ℓ_syn − p_active + d_cumulative,
+regardless of decode success. A revealed-punctured bit costs 2 (direct
++ freed syndrome); a revealed payload bit costs 1 (direct only). Failed
+frames are tracked via FER, not by inflating the leakage count.
 """
 
 from __future__ import annotations
@@ -279,9 +280,10 @@ class BorisovAdaptiveLDPC:
         llr_q = math.log((1 - q_for_llr) / q_for_llr)
         llr_channel = np.full(self.N, llr_q, dtype=np.float64)
         llr_channel[punctured_positions] = 0.0
-        llr_channel[shortened_positions] = np.where(
-            shortened_values == 0, _LLR_LARGE, -_LLR_LARGE
-        )
+        # e_v = alice_v ⊕ bob_v = 0 at shortened positions (Alice and Bob
+        # both write shortened_values via shared PRNG). LLR for e is
+        # log(P(e=0)/P(e=1)) → +LLR_LARGE regardless of the shortened value.
+        llr_channel[shortened_positions] = _LLR_LARGE
 
         ell_syn = (1 - R) * self.N
         punctured_remaining = punctured_positions.copy()
@@ -292,6 +294,15 @@ class BorisovAdaptiveLDPC:
         bp_iters = 0
         success = False
         e_hat = np.zeros(self.N, dtype=np.uint8)
+        # Track payload-local indices that have been explicitly revealed during
+        # the disclosure loop. After disclosure, bob_ext[reveal] = alice[reveal],
+        # so the decoder's e_hat = 0 at those positions. But `bob` (the caller's
+        # original noisy payload) still has bob[j] ≠ alice[j] wherever the BSC
+        # flipped that bit. Verification (`recovered_alice = bob ^ e_hat`) would
+        # therefore mis-flag the frame as failed at those revealed positions.
+        # We must overwrite `bob` with `alice` at every revealed payload local
+        # index before verifying — both sides already exchanged those bits.
+        bob_local = bob.copy()
 
         for round_k in range(self.max_disclosure_rounds + 1):
             e_hat, iters, ok, posterior = decoder.decode_min_sum(
@@ -300,7 +311,7 @@ class BorisovAdaptiveLDPC:
             )
             bp_iters += iters
             if ok:
-                recovered_alice = bob ^ e_hat[payload_positions]
+                recovered_alice = bob_local ^ e_hat[payload_positions]
                 success = bool(np.array_equal(recovered_alice, alice))
                 break
             if round_k == self.max_disclosure_rounds:
@@ -339,13 +350,19 @@ class BorisovAdaptiveLDPC:
                 payload_local = disclosure_order[start:end]
                 chosen_positions = payload_positions[payload_local]
                 reveals.extend(int(p) for p in chosen_positions)
+                # Sync bob_local with alice at these payload-local indices —
+                # the bits were exchanged on the public channel, so the
+                # post-LDPC frame must reflect that.
+                bob_local[payload_local] = alice[payload_local]
                 n_payload_disclosed += end - start
             if not reveals:
                 break
 
             reveal_arr = np.asarray(reveals, dtype=np.int64)
             actual_vals = alice_ext[reveal_arr]
-            llr_channel[reveal_arr] = np.where(actual_vals == 0, _LLR_LARGE, -_LLR_LARGE)
+            # After bob_ext[reveal_arr] = actual_vals (line below), e=0 at these
+            # positions with certainty → LLR = +LLR_LARGE.
+            llr_channel[reveal_arr] = _LLR_LARGE
             bob_ext[reveal_arr] = actual_vals
             d_cumulative += len(reveals)
             syn_bob = np.asarray(code.H @ bob_ext).flatten() & 1
@@ -362,7 +379,9 @@ class BorisovAdaptiveLDPC:
 
         if true_qber is None:
             true_qber = true_q_frame
-        corrected_bob = bob ^ e_hat[payload_positions] if success else bob.copy()
+        # corrected_bob uses bob_local (which already has revealed payload bits
+        # overwritten with alice's values) XOR the decoder's payload error guess.
+        corrected_bob = bob_local ^ e_hat[payload_positions] if success else bob.copy()
         return FrameResult(
             corrected_alice=alice.copy(),
             corrected_bob=corrected_bob,

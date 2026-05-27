@@ -19,12 +19,13 @@ Per-frame flow:
   5. Repeat until decode success OR all rate-adapt positions have been
      revealed OR `max_blind_rounds` is hit.
 
-Leakage accounting (Mueller Eq. 10):
+Leakage accounting (Mueller Eq. 10, puncturing-shortening):
   leakage = (1 - R) * N - p_current + krevealed
-where p_current = d - krevealed (each revealed bit moves from punctured
-to shortened). So leakage = (1-R)*N - d + 2*krevealed; the factor 2
-reflects both the explicit bit reveal AND the syndrome constraint that
-was previously absorbing it.
+where p_current = d - krevealed. Equivalently:
+  leakage = (1-R)*N - d + 2*krevealed
+Per-reveal cost is +2 bits: +1 for the explicit bit value Alice sends
+to Bob, +1 for the syndrome bit that was previously absorbed by that
+puncture and is now informative.
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ class MuellerBlindLDPC:
         f_start: float = 1.1,
         alpha: float = 1.0,
         max_blind_rounds: int = 20,
-        max_bp_iter: int = 50,
+        max_bp_iter: int = 100,
         seed: int = 0,
     ):
         if not codes:
@@ -194,9 +195,9 @@ class MuellerBlindLDPC:
             lowest_v = currently_punctured[np.argsort(posterior_abs)[:v]]
 
             actual_values = alice_ext[lowest_v]
-            llr_channel[lowest_v] = np.where(
-                actual_values == 0, _LLR_LARGE, -_LLR_LARGE
-            )
+            # bob_ext[lowest_v] = actual_values below makes e=0 at these positions
+            # with certainty → LLR for e is +LLR_LARGE.
+            llr_channel[lowest_v] = _LLR_LARGE
             bob_ext[lowest_v] = actual_values
             punctured_mask[lowest_v] = False
             revealed_count += int(v)
@@ -205,6 +206,15 @@ class MuellerBlindLDPC:
             target_syndrome = (syn_alice ^ syn_bob).astype(np.int8)
             messages += 1
 
+        # Mueller Eq. 10 (puncturing-shortening accounting):
+        #   leak = m - p_current + krev = (1-R)*N - (d - krev) + krev
+        #        = (1-R)*N - d + 2*krev
+        # where m = (1-R)*N is the full syndrome size, p_current is the
+        # current number of still-punctured slots, and krev is the number
+        # of slots that have been moved from punctured to shortened.
+        # Per-reveal cost is +2 bits: +1 for the explicit value Alice sends,
+        # +1 because the syndrome bit that was previously absorbed by the
+        # puncture is now informative.
         p_current = int(d - revealed_count)
         leakage = int(round((1 - R) * self.N)) - p_current + revealed_count
 

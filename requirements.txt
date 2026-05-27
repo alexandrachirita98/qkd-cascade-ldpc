@@ -1,0 +1,15 @@
+# Core runtime deps — mirrors [project.dependencies] in pyproject.toml.
+# For an editable install (recommended) use: pip install -e .
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+sequence>=0.8
+pandas>=2.1
+pyarrow>=14
+
+# Notebook / plotting extras used by local_notebook.ipynb (Cell 4 uses seaborn).
+seaborn>=0.13
+ipython>=8.0
+
+# Dev (mirror [project.optional-dependencies].dev). Uncomment if needed.
+# pytest>=8.0

@@ -50,6 +50,7 @@ node_modules/
 # LDPC matrices under src/codes/data/ are commit-on-purpose and are NOT here.
 results/
 out/
+local_results/
 *.parquet
 /sweep_*.csv
 /check_*.csv
